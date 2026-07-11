@@ -1,0 +1,389 @@
+/*
+  Token system
+  ------------
+  Color   #0b0c0e void / #17181b panel / #1f2125 raised / #2a2d32 hairline
+          #e8e9ec text / #8b8f97 muted / #34e4ea cyan / #7c5cfc violet / #ff5d5d danger
+  Type    "IBM Plex Mono" for technical labels + numeric readouts,
+          "Inter" for interactive UI copy.
+  Layout  three-column rig: layers | input+output | properties.
+  Signature: a slow cyan->violet scanline sweep under the toolbar — the one
+             animated flourish in an otherwise still, technical panel.
+*/
+
+.shell {
+  --void: #0b0c0e;
+  --panel: #17181b;
+  --raised: #1f2125;
+  --hairline: #2a2d32;
+  --text: #e8e9ec;
+  --muted: #8b8f97;
+  --cyan: #34e4ea;
+  --violet: #7c5cfc;
+  --danger: #ff5d5d;
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--void);
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+.toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+.toolbar::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: -30%;
+  width: 30%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan), var(--violet), transparent);
+  animation: scan-sweep 5s linear infinite;
+}
+
+@keyframes scan-sweep {
+  to {
+    left: 100%;
+  }
+}
+
+.brand {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.brand strong {
+  color: var(--text);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .body {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    overflow-y: auto;
+  }
+}
+
+.column {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--hairline);
+  background: var(--panel);
+}
+
+.column:last-child {
+  border-right: none;
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.center {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+  background: var(--void);
+}
+
+@media (max-width: 1100px) {
+  .center {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stagePane {
+  position: relative;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--hairline);
+}
+
+.stagePane:last-child {
+  border-right: none;
+}
+
+.stageBody {
+  flex: 1;
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.stageBodyInner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.emptyStage {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* --- layer list --- */
+
+.layerList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.emptyList {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 16px 10px;
+  text-align: center;
+}
+
+.layerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px;
+  border-radius: 6px;
+  background: var(--raised);
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.layerRow:hover {
+  border-color: var(--hairline);
+}
+
+.layerRow[data-selected] {
+  border-color: var(--cyan);
+  background: linear-gradient(0deg, rgba(52, 228, 234, 0.08), rgba(52, 228, 234, 0.08)), var(--raised);
+}
+
+.layerRow[data-dragging] {
+  opacity: 0.5;
+}
+
+.dragHandle {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: grab;
+  font-size: 14px;
+  padding: 2px 4px;
+}
+
+.layerType {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--violet);
+  background: rgba(124, 92, 252, 0.12);
+  border-radius: 4px;
+  padding: 2px 5px;
+  letter-spacing: 0.04em;
+}
+
+.layerLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconButton {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.iconButton:hover {
+  background: var(--hairline);
+  color: var(--text);
+}
+
+.iconButton[data-active] {
+  color: var(--cyan);
+}
+
+/* --- add-layer controls --- */
+
+.addLayerBox {
+  border-top: 1px solid var(--hairline);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.addLayerRow {
+  display: flex;
+  gap: 6px;
+}
+
+.select,
+.numberInput,
+.textInput {
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.select {
+  flex: 1;
+}
+
+.numberInput {
+  width: 56px;
+}
+
+.textInput {
+  width: 100%;
+}
+
+.button {
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.button:hover {
+  border-color: var(--cyan);
+}
+
+.buttonPrimary {
+  composes: button;
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  border: none;
+  color: #05070a;
+  font-weight: 600;
+}
+
+.buttonDanger {
+  composes: button;
+  color: var(--danger);
+}
+
+/* --- properties panel --- */
+
+.propertiesBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.fieldValue {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  color: var(--text);
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.colorList {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.colorSwatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  padding: 0;
+  cursor: pointer;
+  background: none;
+}
+
+.noSelection {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.sectionTitle {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: -4px;
+}
