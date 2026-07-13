@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { useProjectionChannel } from "@/lib/projectionSync";
 import { ProjectionStage } from "@/components/projection/ProjectionStage";
 import { ShaderGlobalStyles } from "@/components/projection/ShaderGlobalStyles";
+import { resolveLayerSources } from "@/lib/resolveLayerSources";
 import type { ProjectionLayer } from "@/types/layer";
 import type { MaptasticLayerLayout } from "@/lib/maptastic";
 
 export default function ProjectionOutputPage() {
   const [layers, setLayers] = useState<ProjectionLayer[]>([]);
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({});
   const [connected, setConnected] = useState(false);
 
   const send = useProjectionChannel((msg) => {
@@ -25,6 +27,19 @@ export default function ProjectionOutputPage() {
             : incoming;
         })
       );
+    } else if (msg.kind === "file") {
+      setBlobUrls((prev) => {
+        if (prev[msg.layerId]) URL.revokeObjectURL(prev[msg.layerId]);
+        return { ...prev, [msg.layerId]: URL.createObjectURL(msg.blob) };
+      });
+    } else if (msg.kind === "file-cleared") {
+      setBlobUrls((prev) => {
+        if (!prev[msg.layerId]) return prev;
+        URL.revokeObjectURL(prev[msg.layerId]);
+        const next = { ...prev };
+        delete next[msg.layerId];
+        return next;
+      });
     }
   });
 
@@ -32,14 +47,24 @@ export default function ProjectionOutputPage() {
     send({ kind: "request-state" });
   }, [send]);
 
+  // Revoke every object URL we created when this tab closes.
+  useEffect(() => {
+    return () => {
+      Object.values(blobUrls).forEach((url) => URL.revokeObjectURL(url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleLayoutChange = (layout: MaptasticLayerLayout[]) => {
     send({ kind: "geometry", layout });
   };
 
+  const resolvedLayers = resolveLayerSources(layers, blobUrls);
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000" }}>
       <ShaderGlobalStyles />
-      <ProjectionStage layers={layers} onLayoutChange={handleLayoutChange} />
+      <ProjectionStage layers={resolvedLayers} onLayoutChange={handleLayoutChange} />
       {layers.length === 0 && (
         <div
           style={{

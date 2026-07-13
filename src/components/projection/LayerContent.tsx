@@ -3,6 +3,7 @@
 import type { ProjectionLayer } from "@/types/layer";
 import { SplatLayerViewer } from "./SplatLayerViewer";
 import { ShaderLayerView } from "./ShaderLayerView";
+import { normalizeEmbedUrl, embedAllowAttribute } from "@/lib/embedUtils";
 
 /** Renders just the layer's content, filling whatever box it's placed in. */
 export function LayerContent({ layer }: { layer: ProjectionLayer }) {
@@ -33,16 +34,18 @@ export function LayerContent({ layer }: { layer: ProjectionLayer }) {
         <EmptyState label="Set a video URL" />
       );
 
-    case "iframe":
-      return layer.src ? (
+    case "iframe": {
+      if (!layer.src) return <EmptyState label="Set an embed URL (Sketchfab, YouTube, Vimeo, or any embeddable page)" />;
+      const { url, provider } = normalizeEmbedUrl(layer.src);
+      return (
         <iframe
-          src={layer.src}
-          allow="autoplay; fullscreen"
+          src={url}
+          allow={embedAllowAttribute(provider)}
+          allowFullScreen
           style={{ width: "100%", height: "100%", border: "none", opacity: layer.opacity }}
         />
-      ) : (
-        <EmptyState label="Set an embed URL" />
       );
+    }
 
     case "splat":
       return <SplatLayerViewer layer={layer} />;

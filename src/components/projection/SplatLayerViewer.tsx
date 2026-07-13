@@ -5,6 +5,8 @@ import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SplatLayer } from "@/types/layer";
+import { zoomCamera, panCamera, rotateCamera } from "@/lib/handGestureMath";
+import { gestureTargetRegistry, type GestureTarget } from "@/lib/gestureTargetRegistry";
 
 interface Props {
   layer: SplatLayer;
@@ -12,10 +14,12 @@ interface Props {
 
 /**
  * Renders one splat file (.ply/.splat/.ksplat/.spz/.sog/.zip) into its own
- * three.js + Spark scene, sized to fill the parent element. Deliberately
- * trimmed down from a full standalone viewer: no file picker, no webcam hand
- * tracking — just `src`, `flipUpsideDown`, `autoRotate`, `backgroundColor`,
- * all driven by the layer's Properties panel.
+ * three.js + Spark scene, sized to fill the parent element. Trimmed down
+ * from a full standalone viewer (no file picker UI of its own — that lives
+ * in the Properties panel), but keeps the hand-gesture hookup: when
+ * `layer.gestureControl` is on, this instance registers its own camera with
+ * the shared gesture registry (see HandGestureManager, which owns the one
+ * webcam + MediaPipe Hands pipeline for the whole output window).
  */
 export function SplatLayerViewer({ layer }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,6 +27,7 @@ export function SplatLayerViewer({ layer }: Props) {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const currentSplatRef = useRef<InstanceType<typeof SplatMesh> | null>(null);
+  const distanceLimitsRef = useRef<{ min: number; max: number }>({ min: 0.5, max: 80 });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -103,7 +108,22 @@ export function SplatLayerViewer({ layer }: Props) {
 
     (async () => {
       try {
-        const mesh = new SplatMesh({ url: layer.src, fileName: layer.src });
+        let mesh: InstanceType<typeof SplatMesh>;
+
+        if (layer.sourceMode === "file") {
+          // layer.src is a blob: URL here (see resolveLayerSources). Spark's
+          // `url` loader is built around real HTTP(S) resources — it wasn't
+          // reliable against blob: URLs in testing, which matches why the
+          // original reference component never passed one to `url` either:
+          // for File input it always read the bytes and used `fileBytes`
+          // instead. Fetching the blob: URL back into an ArrayBuffer here
+          // reproduces that same working path.
+          const bytes = await fetch(layer.src).then((r) => r.arrayBuffer());
+          mesh = new SplatMesh({ fileBytes: bytes, fileName: layer.fileName || "upload" });
+        } else {
+          mesh = new SplatMesh({ url: layer.src, fileName: layer.src });
+        }
+
         await mesh.initialized;
         if (cancelled) return;
 
@@ -131,6 +151,7 @@ export function SplatLayerViewer({ layer }: Props) {
           camera.far = radius * 1000;
           camera.updateProjectionMatrix();
           controls.update();
+          distanceLimitsRef.current = { min: radius * 0.15, max: radius * 40 };
         }
       } catch (err) {
         if (!cancelled) {
@@ -145,7 +166,37 @@ export function SplatLayerViewer({ layer }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [layer.src, layer.flipUpsideDown]);
+  }, [layer.src, layer.flipUpsideDown, layer.fileName, layer.sourceMode]);
+
+  // Opt this viewer's camera into the shared hand-gesture stream while
+  // gestureControl is on; drop out immediately when it's turned off or the
+  // layer unmounts, so a stale camera never keeps reacting in the background.
+  useEffect(() => {
+    if (!layer.gestureControl) return;
+
+    const target: GestureTarget = {
+      zoom: (delta) => {
+        const camera = cameraRef.current;
+        const controls = controlsRef.current;
+        if (camera && controls) {
+          zoomCamera(camera, controls, delta, distanceLimitsRef.current.min, distanceLimitsRef.current.max);
+        }
+      },
+      pan: (dx, dy) => {
+        const camera = cameraRef.current;
+        const controls = controlsRef.current;
+        if (camera && controls) panCamera(camera, controls, dx, dy);
+      },
+      rotate: (dx, dy) => {
+        const camera = cameraRef.current;
+        const controls = controlsRef.current;
+        if (camera && controls) rotateCamera(camera, controls, dx, dy);
+      },
+    };
+
+    gestureTargetRegistry.register(layer.id, target);
+    return () => gestureTargetRegistry.unregister(layer.id);
+  }, [layer.id, layer.gestureControl]);
 
   return (
     <div

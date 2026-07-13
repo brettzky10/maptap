@@ -1,65 +1,134 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useRef, useState } from "react";
+import { useProjectionLayers } from "@/hooks/useProjectionLayers";
+import { useProjectionChannel } from "@/lib/projectionSync";
+import { LayerList } from "@/components/projection/LayerList";
+import { AddLayerControls } from "@/components/projection/AddLayerControls";
+import { InputPreview } from "@/components/projection/InputPreview";
+import { OutputPreview } from "@/components/projection/OutputPreview";
+import { PropertiesPanel } from "@/components/projection/PropertiesPanel";
+import { ShaderGlobalStyles } from "@/components/projection/ShaderGlobalStyles";
+import { resolveLayerSources } from "@/lib/resolveLayerSources";
+import styles from "@/components/projection/panel.module.css";
+
+export default function ProjectionMappingPage() {
+  const {
+    layers,
+    selectedId,
+    setSelectedId,
+    blobUrls,
+    addLayers,
+    removeLayer,
+    updateLayer,
+    reorderLayer,
+    toggleVisible,
+    toggleLocked,
+    pickFile,
+    clearFile,
+    exportProject,
+    importProject,
+  } = useProjectionLayers();
+
+  const [outputConnected, setOutputConnected] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const outputWindowRef = useRef<Window | null>(null);
+
+  // We already listen for "geometry"/"request-state" inside useProjectionLayers;
+  // this second listener just flips the "connected" indicator whenever the
+  // output tab announces itself.
+  useProjectionChannel((msg) => {
+    if (msg.kind === "request-state") setOutputConnected(true);
+  });
+
+  const rawSelectedLayer = layers.find((l) => l.id === selectedId) ?? null;
+  const resolvedSelectedLayer = resolveLayerSources(layers, blobUrls).find((l) => l.id === selectedId) ?? null;
+
+  const openOutputWindow = () => {
+    const win = window.open("/projection-mapping/output", "projection-output");
+    outputWindowRef.current = win;
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      importProject(await file.text());
+    } catch {
+      alert("That file doesn't look like a valid project export.");
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className={styles.shell}>
+      <ShaderGlobalStyles />
+
+      <div className={styles.toolbar}>
+        <span className={styles.brand}>
+          <strong>Holomapped</strong> · projection mapping
+        </span>
+        <button className={styles.button} onClick={exportProject}>
+          Export project
+        </button>
+        <button className={styles.button} onClick={handleImportClick}>
+          Import project
+        </button>
+        <input ref={fileInputRef} type="file" accept="application/json" hidden onChange={handleImportFile} />
+      </div>
+
+      <div className={styles.body}>
+        <div className={styles.column}>
+          <div className={styles.columnHeader}>
+            <span>Layers</span>
+            <span>{layers.length}</span>
+          </div>
+          <LayerList
+            layers={layers}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onReorder={reorderLayer}
+            onToggleVisible={toggleVisible}
+            onToggleLocked={toggleLocked}
+            onRemove={removeLayer}
+          />
+          <AddLayerControls onAdd={addLayers} />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        <div className={styles.center}>
+          <div className={styles.stagePane}>
+            <div className={styles.columnHeader}>
+              <span>Input</span>
+              <span>{resolvedSelectedLayer ? resolvedSelectedLayer.type : "—"}</span>
+            </div>
+            <div className={styles.stageBody}>
+              <InputPreview layer={resolvedSelectedLayer} />
+            </div>
+          </div>
+
+          <div className={styles.stagePane}>
+            <div className={styles.columnHeader}>
+              <span>Output</span>
+              <span>preview</span>
+            </div>
+            <OutputPreview
+              layers={layers}
+              selectedId={selectedId}
+              outputConnected={outputConnected}
+              onOpenOutput={openOutputWindow}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
         </div>
-      </main>
+
+        <div className={styles.column}>
+          <div className={styles.columnHeader}>
+            <span>Properties</span>
+          </div>
+          <PropertiesPanel layer={rawSelectedLayer} onChange={updateLayer} onPickFile={pickFile} onClearFile={clearFile} />
+        </div>
+      </div>
     </div>
   );
 }

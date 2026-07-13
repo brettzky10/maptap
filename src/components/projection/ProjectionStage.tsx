@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { createMaptastic, type MaptasticInstance, type MaptasticLayerLayout } from "@/lib/maptastic";
 import type { ProjectionLayer } from "@/types/layer";
 import { LayerContent } from "./LayerContent";
+import { HandGestureManager } from "./HandGestureManager";
 
 interface Props {
   layers: ProjectionLayer[];
@@ -28,6 +29,7 @@ export function ProjectionStage({ layers, onLayoutChange }: Props) {
   onLayoutChangeRef.current = onLayoutChange;
 
   const visibleLayers = layers.filter((l) => l.visible);
+  const gestureControlActive = visibleLayers.some((l) => l.type === "splat" && l.gestureControl);
 
   // Create the engine once.
   useEffect(() => {
@@ -84,6 +86,7 @@ export function ProjectionStage({ layers, onLayoutChange }: Props) {
           <LayerContent layer={layer} />
         </div>
       ))}
+      <HandGestureManager active={gestureControlActive} />
     </div>
   );
 }

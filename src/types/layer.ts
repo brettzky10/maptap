@@ -16,7 +16,11 @@ export interface LayerBase {
 
 export interface ImageLayer extends LayerBase {
   type: "image";
+  /** Where the content actually comes from. "file" means look it up via the layer id in the local file store (see lib/localFileStore.ts) rather than fetching `src`. */
+  sourceMode: "url" | "file";
   src: string;
+  /** Original picked filename, shown in the UI when sourceMode is "file". */
+  fileName?: string;
   fit: "cover" | "contain" | "fill";
   /** True for transparent PNG overlays — just changes the default `fit` and UI copy. */
   transparent: boolean;
@@ -32,16 +36,20 @@ export interface VideoLayer extends LayerBase {
 
 export interface IframeLayer extends LayerBase {
   type: "iframe";
-  /** Embed URL — YouTube/Vimeo embed link, or any same-origin-friendly page. */
+  /** Raw URL as typed/pasted — a share link, a model page, or an already-correct embed URL. */
   src: string;
 }
 
 export interface SplatLayer extends LayerBase {
   type: "splat";
-  /** URL to a .ply / .splat / .ksplat / .spz / .sog / .zip file. */
+  sourceMode: "url" | "file";
+  /** URL to a .ply / .splat / .ksplat / .spz / .sog / .zip file (when sourceMode is "url"). */
   src: string;
+  fileName?: string;
   flipUpsideDown: boolean;
   autoRotate: boolean;
+  /** Drives this layer's camera from hand gestures picked up by the webcam in the output window. */
+  gestureControl: boolean;
   backgroundColor: string; // CSS color, or "transparent"
 }
 
@@ -64,7 +72,7 @@ export function createDefaultLayer(type: LayerType, id: string, index: number): 
 
   switch (type) {
     case "image":
-      return { ...base, type: "image", src: "", fit: "contain", transparent: true };
+      return { ...base, type: "image", sourceMode: "url", src: "", fit: "contain", transparent: true };
     case "video":
       return { ...base, type: "video", src: "", loop: true, muted: true, autoplay: true };
     case "iframe":
@@ -73,9 +81,11 @@ export function createDefaultLayer(type: LayerType, id: string, index: number): 
       return {
         ...base,
         type: "splat",
+        sourceMode: "url",
         src: "",
         flipUpsideDown: true,
         autoRotate: false,
+        gestureControl: false,
         backgroundColor: "transparent",
       };
     case "shader":

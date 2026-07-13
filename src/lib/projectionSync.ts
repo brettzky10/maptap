@@ -12,7 +12,11 @@ export type ProjectionSyncMessage =
   /** Output tab -> control window: geometry-only update after a drag/nudge. */
   | { kind: "geometry"; layout: MaptasticLayerLayout[] }
   /** Output tab -> control window, sent on mount: "send me what you have". */
-  | { kind: "request-state" };
+  | { kind: "request-state" }
+  /** Control window -> output tab: the actual bytes for a locally-picked file. Blobs are structured-cloneable, so this works over BroadcastChannel without any base64 round-trip. */
+  | { kind: "file"; layerId: string; blob: Blob }
+  /** Control window -> output tab: a previously-sent file no longer applies (switched back to URL mode, or the layer was removed). */
+  | { kind: "file-cleared"; layerId: string };
 
 /**
  * Thin wrapper around BroadcastChannel so both windows can share one type-safe

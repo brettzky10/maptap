@@ -9,6 +9,7 @@ import { InputPreview } from "@/components/projection/InputPreview";
 import { OutputPreview } from "@/components/projection/OutputPreview";
 import { PropertiesPanel } from "@/components/projection/PropertiesPanel";
 import { ShaderGlobalStyles } from "@/components/projection/ShaderGlobalStyles";
+import { resolveLayerSources } from "@/lib/resolveLayerSources";
 import styles from "@/components/projection/panel.module.css";
 
 export default function ProjectionMappingPage() {
@@ -16,12 +17,15 @@ export default function ProjectionMappingPage() {
     layers,
     selectedId,
     setSelectedId,
+    blobUrls,
     addLayers,
     removeLayer,
     updateLayer,
     reorderLayer,
     toggleVisible,
     toggleLocked,
+    pickFile,
+    clearFile,
     exportProject,
     importProject,
   } = useProjectionLayers();
@@ -37,7 +41,8 @@ export default function ProjectionMappingPage() {
     if (msg.kind === "request-state") setOutputConnected(true);
   });
 
-  const selectedLayer = layers.find((l) => l.id === selectedId) ?? null;
+  const rawSelectedLayer = layers.find((l) => l.id === selectedId) ?? null;
+  const resolvedSelectedLayer = resolveLayerSources(layers, blobUrls).find((l) => l.id === selectedId) ?? null;
 
   const openOutputWindow = () => {
     const win = window.open("/projection-mapping/output", "projection-output");
@@ -63,7 +68,7 @@ export default function ProjectionMappingPage() {
 
       <div className={styles.toolbar}>
         <span className={styles.brand}>
-          <strong>MapTap</strong> · projection mapping
+          <strong>Holomapped</strong> · projection mapping
         </span>
         <button className={styles.button} onClick={exportProject}>
           Export project
@@ -96,10 +101,10 @@ export default function ProjectionMappingPage() {
           <div className={styles.stagePane}>
             <div className={styles.columnHeader}>
               <span>Input</span>
-              <span>{selectedLayer ? selectedLayer.type : "—"}</span>
+              <span>{resolvedSelectedLayer ? resolvedSelectedLayer.type : "—"}</span>
             </div>
             <div className={styles.stageBody}>
-              <InputPreview layer={selectedLayer} />
+              <InputPreview layer={resolvedSelectedLayer} />
             </div>
           </div>
 
@@ -121,7 +126,7 @@ export default function ProjectionMappingPage() {
           <div className={styles.columnHeader}>
             <span>Properties</span>
           </div>
-          <PropertiesPanel layer={selectedLayer} onChange={updateLayer} />
+          <PropertiesPanel layer={rawSelectedLayer} onChange={updateLayer} onPickFile={pickFile} onClearFile={clearFile} />
         </div>
       </div>
     </div>

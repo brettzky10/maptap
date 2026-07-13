@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MaptasticLayerLayout } from "@/lib/maptastic";
 import { createDefaultLayer, type LayerType, type ProjectionLayer } from "@/types/layer";
 import { useProjectionChannel } from "@/lib/projectionSync";
+import { putLocalFile, getLocalFile, deleteLocalFile } from "@/lib/localFileStore";
 
 const STORAGE_KEY = "projection-mapping.project.v1";
 
@@ -25,6 +26,10 @@ function saveToStorage(layers: ProjectionLayer[]) {
   }
 }
 
+function isFileBackable(layer: ProjectionLayer): layer is Extract<ProjectionLayer, { type: "image" | "splat" }> {
+  return layer.type === "image" || layer.type === "splat";
+}
+
 let idCounter = 0;
 function makeId() {
   idCounter += 1;
@@ -37,16 +42,39 @@ function makeId() {
 export function useProjectionLayers() {
   const [layers, setLayers] = useState<ProjectionLayer[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Local-only: object URLs for picked files, keyed by layer id. Never
+  // persisted or broadcast as strings — see lib/localFileStore.ts.
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({});
   const hydrated = useRef(false);
 
-  // Load persisted project on mount (client only, so no SSR/hydration mismatch).
+  // Load persisted project + any locally-stored files on mount.
   useEffect(() => {
-    const stored = loadFromStorage();
-    if (stored.length) {
-      setLayers(stored);
-      setSelectedId(stored[0].id);
-    }
-    hydrated.current = true;
+    (async () => {
+      const stored = loadFromStorage();
+      if (stored.length) {
+        setLayers(stored);
+        setSelectedId(stored[0].id);
+
+        const urls: Record<string, string> = {};
+        for (const layer of stored) {
+          if (isFileBackable(layer) && layer.sourceMode === "file") {
+            const blob = await getLocalFile(layer.id).catch(() => undefined);
+            if (blob) urls[layer.id] = URL.createObjectURL(blob);
+          }
+        }
+        if (Object.keys(urls).length) setBlobUrls(urls);
+      }
+      hydrated.current = true;
+    })();
+
+    // Revoke every object URL still outstanding when the whole hook unmounts.
+    return () => {
+      setBlobUrls((current) => {
+        Object.values(current).forEach((url) => URL.revokeObjectURL(url));
+        return current;
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist on every change (after initial hydration).
@@ -55,18 +83,30 @@ export function useProjectionLayers() {
     saveToStorage(layers);
   }, [layers]);
 
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
+
   // Broadcast full layer list to any open output tab whenever it changes,
-  // and merge geometry updates that come back from the output tab.
+  // merge geometry updates that come back from the output tab, and resend
+  // both layers + any current files when the output tab (re)announces itself.
   const send = useProjectionChannel((msg) => {
     if (msg.kind === "geometry") {
       applyGeometry(msg.layout);
     } else if (msg.kind === "request-state") {
       send({ kind: "layers", layers: layersRef.current });
+      resendAllFiles();
     }
   });
 
-  const layersRef = useRef(layers);
-  layersRef.current = layers;
+  const resendAllFiles = useCallback(async () => {
+    for (const layer of layersRef.current) {
+      if (isFileBackable(layer) && layer.sourceMode === "file") {
+        const blob = await getLocalFile(layer.id).catch(() => undefined);
+        if (blob) send({ kind: "file", layerId: layer.id, blob });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [send]);
 
   useEffect(() => {
     if (!hydrated.current) return;
@@ -95,10 +135,22 @@ export function useProjectionLayers() {
     });
   }, []);
 
-  const removeLayer = useCallback((id: string) => {
-    setLayers((prev) => prev.filter((l) => l.id !== id));
-    setSelectedId((current) => (current === id ? null : current));
-  }, []);
+  const removeLayer = useCallback(
+    (id: string) => {
+      setLayers((prev) => prev.filter((l) => l.id !== id));
+      setSelectedId((current) => (current === id ? null : current));
+      setBlobUrls((prev) => {
+        if (!prev[id]) return prev;
+        URL.revokeObjectURL(prev[id]);
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      deleteLocalFile(id).catch(() => {});
+      send({ kind: "file-cleared", layerId: id });
+    },
+    [send]
+  );
 
   const updateLayer = useCallback((id: string, patch: Partial<ProjectionLayer>) => {
     setLayers((prev) => prev.map((l) => (l.id === id ? ({ ...l, ...patch } as ProjectionLayer) : l)));
@@ -120,6 +172,43 @@ export function useProjectionLayers() {
   const toggleLocked = useCallback((id: string) => {
     setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, locked: !l.locked } : l)));
   }, []);
+
+  /** Switches a layer to sourceMode "file", stores the bytes, and pushes them to the output tab. */
+  const pickFile = useCallback(
+    async (id: string, file: File) => {
+      await putLocalFile(id, file);
+      setBlobUrls((prev) => {
+        if (prev[id]) URL.revokeObjectURL(prev[id]);
+        return { ...prev, [id]: URL.createObjectURL(file) };
+      });
+      setLayers((prev) =>
+        prev.map((l) =>
+          l.id === id && isFileBackable(l) ? ({ ...l, sourceMode: "file", fileName: file.name, src: "" } as ProjectionLayer) : l
+        )
+      );
+      send({ kind: "file", layerId: id, blob: file });
+    },
+    [send]
+  );
+
+  /** Switches a layer back to sourceMode "url" and forgets the locally-stored bytes. */
+  const clearFile = useCallback(
+    (id: string) => {
+      setBlobUrls((prev) => {
+        if (!prev[id]) return prev;
+        URL.revokeObjectURL(prev[id]);
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      deleteLocalFile(id).catch(() => {});
+      setLayers((prev) =>
+        prev.map((l) => (l.id === id && isFileBackable(l) ? ({ ...l, sourceMode: "url", fileName: undefined } as ProjectionLayer) : l))
+      );
+      send({ kind: "file-cleared", layerId: id });
+    },
+    [send]
+  );
 
   const exportProject = useCallback(() => {
     const blob = new Blob([JSON.stringify(layers, null, 2)], { type: "application/json" });
@@ -146,12 +235,15 @@ export function useProjectionLayers() {
     layers,
     selectedId,
     setSelectedId,
+    blobUrls,
     addLayers,
     removeLayer,
     updateLayer,
     reorderLayer,
     toggleVisible,
     toggleLocked,
+    pickFile,
+    clearFile,
     exportProject,
     importProject,
   };
